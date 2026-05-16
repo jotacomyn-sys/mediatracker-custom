@@ -1874,3 +1874,339 @@ fs.writeFileSync(bundlePath, c);
 console.log('games-seen-split: _GVS injected and Zv render gated on /games filter=Visto');
 
 })();
+
+// ===== patch_bugfix_pendiente_calendar_v1.js =====
+// Three related fixes for: "marking an episode as completed kicks the show out
+// of Pendiente and out of Calendario". Caused by three layers all collapsing
+// the show out of view as soon as no aired-unseen episodes remain — even when
+// the show still has future episodes scheduled.
+//   A. controllers/seen.js _removeFromWatchlistIfComplete: also block removal
+//      when future episodes exist (releaseDate IS NULL or > today).
+//   B. knex/queries/items.js onlyWithProgress: a TV show with any seen episode
+//      and a known upcomingEpisode keeps "in progress" status (data query +
+//      count fast-path).
+//   C. controllers/calendar.js libSubquery: include shows where any episode
+//      has a seen row, so the show keeps showing on the Calendar after the
+//      last aired episode is marked.
+;(() => {
+const fs = require('fs');
+
+// === A. seen.js: smarter "complete" check ===
+{
+  const path = '/app/build/controllers/seen.js';
+  let c = fs.readFileSync(path, 'utf8');
+  if (c.includes('/* WL_COMPLETE_V2 */')) {
+    console.log('bugfix pendiente: watchlist complete v2 already applied');
+  } else {
+    const old =
+      "      const unwatched = await knex('episode')\n" +
+      "        .where('episode.tvShowId', mediaItem.id)\n" +
+      "        .where('episode.isSpecialEpisode', false)\n" +
+      "        .whereNotNull('episode.releaseDate')\n" +
+      "        .where('episode.releaseDate', '<=', today)\n" +
+      "        .whereNotExists(function() { this.from('seen').whereRaw('seen.episodeId = episode.id').where('seen.userId', userId); })\n" +
+      "        .count('* as c').first();\n" +
+      "      isComplete = (Number(unwatched && unwatched.c) || 0) === 0;";
+    const fresh =
+      "      /* WL_COMPLETE_V2 */\n" +
+      "      const remaining = await knex('episode')\n" +
+      "        .where('episode.tvShowId', mediaItem.id)\n" +
+      "        .where('episode.isSpecialEpisode', false)\n" +
+      "        .where(q => q\n" +
+      "          .whereNull('episode.releaseDate')\n" +
+      "          .orWhere('episode.releaseDate', '>', today)\n" +
+      "          .orWhereNotExists(function() { this.from('seen').whereRaw('seen.episodeId = episode.id').where('seen.userId', userId); })\n" +
+      "        )\n" +
+      "        .count('* as c').first();\n" +
+      "      isComplete = (Number(remaining && remaining.c) || 0) === 0;";
+    if (!c.includes(old)) {
+      console.error('bugfix pendiente: seen.js _removeFromWatchlistIfComplete anchor not found');
+      process.exit(1);
+    }
+    c = c.replace(old, fresh);
+    fs.writeFileSync(path, c);
+    console.log('bugfix pendiente: watchlist auto-remove now considers future episodes');
+  }
+}
+
+// === B. items.js: keep TV shows with upcoming episodes in onlyWithProgress ===
+{
+  const path = '/app/build/knex/queries/items.js';
+  let c = fs.readFileSync(path, 'utf8');
+
+  // B.1 — data query: relax the TV "in progress" branch to include shows with
+  // upcomingEpisode (already leftJoined upstream).
+  const tvOld =
+    "orWhere(qb => qb.where('mediaItem.mediaType', 'tv').where('seenEpisodesCount', '>', 0).andWhere('unseenEpisodesCount', '>', 0))";
+  const tvNew =
+    "orWhere(qb => qb.where('mediaItem.mediaType', 'tv').where('seenEpisodesCount', '>', 0).andWhere(inner => inner.where('unseenEpisodesCount', '>', 0).orWhereNotNull('upcomingEpisode.tvShowId')))";
+  if (c.includes(tvNew)) {
+    console.log('bugfix pendiente: items.js data query TV branch already relaxed');
+  } else if (!c.includes(tvOld)) {
+    console.error('bugfix pendiente: items.js data query TV anchor not found');
+    process.exit(1);
+  } else {
+    c = c.replace(tvOld, tvNew);
+    console.log('bugfix pendiente: items.js data query keeps caught-up shows with upcoming ep');
+  }
+
+  // B.2 — data query: require strictly partial progress for non-TV
+  // (was: any progress row → in-progress, which catches progress=0 leftovers).
+  const nonTvOld =
+    "where(qb => qb.whereNot('mediaItem.mediaType', 'tv').whereNotNull('progress.mediaItemId'))";
+  const nonTvNew =
+    "where(qb => qb.whereNot('mediaItem.mediaType', 'tv').whereNotNull('progress.mediaItemId').where('progress.progress', '>', 0).where('progress.progress', '<', 1))";
+  if (c.includes(nonTvNew)) {
+    console.log('bugfix pendiente: items.js data query non-TV progress check already strict');
+  } else if (!c.includes(nonTvOld)) {
+    console.error('bugfix pendiente: items.js data query non-TV anchor not found');
+    process.exit(1);
+  } else {
+    c = c.replace(nonTvOld, nonTvNew);
+    console.log('bugfix pendiente: items.js data query non-TV requires 0<progress<1');
+  }
+
+  // B.3 — count fast-path: same relaxations using subqueries (the join columns
+  // aren't in scope here). Bump the progress-table filter to >0 AND <1, and add
+  // an OR-branch for TV shows that have a future episode known.
+  const cntProgOld =
+    ".whereExists(qbb => qbb.from('progress').whereRaw('progress.mediaItemId = mediaItem.id').where('progress.userId', userId).where('progress.progress', '<', 1))";
+  const cntProgNew =
+    ".whereExists(qbb => qbb.from('progress').whereRaw('progress.mediaItemId = mediaItem.id').where('progress.userId', userId).where('progress.progress', '>', 0).where('progress.progress', '<', 1))";
+  if (c.includes(cntProgNew)) {
+    console.log('bugfix pendiente: count fast-path progress filter already strict');
+  } else if (!c.includes(cntProgOld)) {
+    console.error('bugfix pendiente: count fast-path progress anchor not found');
+    process.exit(1);
+  } else {
+    c = c.replace(cntProgOld, cntProgNew);
+    console.log('bugfix pendiente: count fast-path requires 0<progress<1');
+  }
+
+  const cntTvOld =
+    "    .orWhere(qb2 => qb2.where('mediaItem.mediaType', 'tv')\n" +
+    "        .whereExists(qbb => qbb.from('seen').whereRaw('seen.mediaItemId = mediaItem.id').where('seen.userId', userId))\n" +
+    "        .whereExists(qbe => qbe.from('episode').whereRaw('episode.tvShowId = mediaItem.id')\n" +
+    "          .where('episode.isSpecialEpisode', false)\n" +
+    "          .whereNotNull('episode.releaseDate')\n" +
+    "          .where('episode.releaseDate', '<=', currentDateString)\n" +
+    "          .whereNotExists(qbs => qbs.from('seen').whereRaw('seen.episodeId = episode.id').where('seen.userId', userId))\n" +
+    "        ))";
+  const cntTvNew =
+    "    .orWhere(qb2 => qb2.where('mediaItem.mediaType', 'tv')\n" +
+    "        .whereExists(qbb => qbb.from('seen').whereRaw('seen.mediaItemId = mediaItem.id').where('seen.userId', userId))\n" +
+    "        .where(qbR => qbR\n" +
+    "          .whereExists(qbe => qbe.from('episode').whereRaw('episode.tvShowId = mediaItem.id')\n" +
+    "            .where('episode.isSpecialEpisode', false)\n" +
+    "            .whereNotNull('episode.releaseDate')\n" +
+    "            .where('episode.releaseDate', '<=', currentDateString)\n" +
+    "            .whereNotExists(qbs => qbs.from('seen').whereRaw('seen.episodeId = episode.id').where('seen.userId', userId))\n" +
+    "          )\n" +
+    "          .orWhereExists(qbf => qbf.from('episode').whereRaw('episode.tvShowId = mediaItem.id')\n" +
+    "            .where('episode.isSpecialEpisode', false)\n" +
+    "            .where(qbd => qbd.whereNull('episode.releaseDate').orWhere('episode.releaseDate', '>', currentDateString))\n" +
+    "          )\n" +
+    "        ))";
+  if (c.includes(cntTvNew)) {
+    console.log('bugfix pendiente: count fast-path TV branch already relaxed');
+  } else if (!c.includes(cntTvOld)) {
+    console.error('bugfix pendiente: count fast-path TV anchor not found');
+    process.exit(1);
+  } else {
+    c = c.replace(cntTvOld, cntTvNew);
+    console.log('bugfix pendiente: count fast-path keeps caught-up shows with future ep');
+  }
+
+  fs.writeFileSync(path, c);
+  try {
+    delete require.cache[require.resolve(path)];
+    require(path);
+    console.log('bugfix pendiente: items.js syntax OK');
+  } catch (e) {
+    console.error('bugfix pendiente: items.js SYNTAX ERROR ->', e.message.slice(0, 300));
+    process.exit(1);
+  }
+}
+
+// === C. calendar.js libSubquery: include shows with any seen episode ===
+{
+  const path = '/app/build/controllers/calendar.js';
+  let c = fs.readFileSync(path, 'utf8');
+  if (c.includes('/* CALENDAR_LIB_V3 */')) {
+    console.log('bugfix pendiente: calendar libSubquery v3 already applied');
+  } else {
+    const old =
+      "const libSubquery = `SELECT mediaItemId FROM listItem li JOIN list l ON l.id = li.listId WHERE l.userId = ${uid}\n" +
+      "                       UNION SELECT mediaItemId FROM progress WHERE userId = ${uid} AND progress < 1`;";
+    const fresh =
+      "/* CALENDAR_LIB_V3 */\n" +
+      "  const libSubquery = `SELECT mediaItemId FROM listItem li JOIN list l ON l.id = li.listId WHERE l.userId = ${uid}\n" +
+      "                       UNION SELECT mediaItemId FROM progress WHERE userId = ${uid} AND progress > 0 AND progress < 1\n" +
+      "                       UNION SELECT DISTINCT episode.tvShowId AS mediaItemId FROM episode JOIN seen ON seen.episodeId = episode.id WHERE seen.userId = ${uid}`;";
+    if (!c.includes(old)) {
+      console.error('bugfix pendiente: calendar libSubquery anchor not found');
+      process.exit(1);
+    }
+    c = c.replace(old, fresh);
+    fs.writeFileSync(path, c);
+    try {
+      delete require.cache[require.resolve(path)];
+      require(path);
+      console.log('bugfix pendiente: calendar.js syntax OK');
+    } catch (e) {
+      console.error('bugfix pendiente: calendar.js SYNTAX ERROR ->', e.message.slice(0, 300));
+      process.exit(1);
+    }
+    console.log('bugfix pendiente: calendar library now includes shows with seen episodes');
+  }
+}
+
+})();
+
+// ===== patch_bugfix_audiobook_duration_persist.js =====
+// Audio/book progress modal: persist the user-entered total duration (audiobook
+// H+M) and total pages (book) so the slider's max is restored next time the
+// modal opens. Without this maxD/maxP are local React state that reset to
+// `t.runtime || 600` / `t.numberOfPages || 200` every render, making the slider
+// scale feel like it "doesn't save".
+//
+// Three edits:
+//   1. /app/build/controllers/item.js setAudioProgress also writes runtime +
+//      numberOfPages when present in the query.
+//   2. /app/build/generated/routes/routes.js — extend the validator schema to
+//      allow optional `runtime` and `numberOfPages` (AJV's removeAdditional
+//      would otherwise strip them silently).
+//   3. /app/public/main_*.js — extend the Rp modal's _save so the audio /
+//      reading paths append &runtime=maxD and &numberOfPages=maxP.
+;(() => {
+const fs = require('fs');
+const child = require('child_process');
+
+// === 1. Controller: accept runtime / numberOfPages ===
+{
+  const path = '/app/build/controllers/item.js';
+  let c = fs.readFileSync(path, 'utf8');
+  if (c.includes('/* AUDIO_PROGRESS_DUR_V2 */')) {
+    console.log('bugfix audio duration: controller already patched');
+  } else {
+    const old =
+      "  setAudioProgress = (0, _typescriptRoutesToOpenapiServer.createExpressRoute)(async (req, res) => {\n" +
+      "    const { mediaItemId } = req.query;\n" +
+      "    const progress = req.query.progress !== undefined ? req.query.progress : (req.body && req.body.progress);\n" +
+      "    const item = await _dbconfig.Database.knex('mediaItem').select('id').where('id', mediaItemId).first();\n" +
+      "    if (!item) { res.status(404).send(); return; }\n" +
+      "    const p = (progress === null || progress === undefined) ? null : Math.max(0, Math.min(1, Number(progress)));\n" +
+      "    await _dbconfig.Database.knex('mediaItem').update({ audioProgress: p }).where('id', mediaItemId);\n" +
+      "    res.json({ ok: true, audioProgress: p });\n" +
+      "  });";
+    const fresh =
+      "  /* AUDIO_PROGRESS_DUR_V2 */\n" +
+      "  setAudioProgress = (0, _typescriptRoutesToOpenapiServer.createExpressRoute)(async (req, res) => {\n" +
+      "    const { mediaItemId } = req.query;\n" +
+      "    const progress = req.query.progress !== undefined ? req.query.progress : (req.body && req.body.progress);\n" +
+      "    const runtime = req.query.runtime;\n" +
+      "    const numberOfPages = req.query.numberOfPages;\n" +
+      "    const item = await _dbconfig.Database.knex('mediaItem').select('id').where('id', mediaItemId).first();\n" +
+      "    if (!item) { res.status(404).send(); return; }\n" +
+      "    const patch = {};\n" +
+      "    let pOut = undefined;\n" +
+      "    if (progress !== null && progress !== undefined) {\n" +
+      "      pOut = Math.max(0, Math.min(1, Number(progress)));\n" +
+      "      patch.audioProgress = pOut;\n" +
+      "    }\n" +
+      "    if (runtime !== undefined && runtime !== null && runtime !== '' && !Number.isNaN(Number(runtime))) {\n" +
+      "      const r = Math.max(1, Math.round(Number(runtime)));\n" +
+      "      patch.runtime = r;\n" +
+      "    }\n" +
+      "    if (numberOfPages !== undefined && numberOfPages !== null && numberOfPages !== '' && !Number.isNaN(Number(numberOfPages))) {\n" +
+      "      const n = Math.max(1, Math.round(Number(numberOfPages)));\n" +
+      "      patch.numberOfPages = n;\n" +
+      "    }\n" +
+      "    if (Object.keys(patch).length > 0) {\n" +
+      "      await _dbconfig.Database.knex('mediaItem').update(patch).where('id', mediaItemId);\n" +
+      "    }\n" +
+      "    res.json({ ok: true, audioProgress: pOut, runtime: patch.runtime, numberOfPages: patch.numberOfPages });\n" +
+      "  });";
+    if (!c.includes(old)) {
+      console.error('bugfix audio duration: setAudioProgress anchor not found');
+      process.exit(1);
+    }
+    c = c.replace(old, fresh);
+    fs.writeFileSync(path, c);
+    console.log('bugfix audio duration: setAudioProgress also persists runtime + numberOfPages');
+  }
+}
+
+// === 2. Route validator: allow runtime + numberOfPages ===
+{
+  const path = '/app/build/generated/routes/routes.js';
+  let c = fs.readFileSync(path, 'utf8');
+  if (c.includes('/* AUDIO_PROGRESS_ROUTE_V2 */')) {
+    console.log('bugfix audio duration: route schema already extended');
+  } else {
+    const old =
+      "router.put('/api/audio-progress', validatorHandler({\n" +
+      "  requestQuerySchema: {\n" +
+      "    $schema: 'http://json-schema.org/draft-07/schema#',\n" +
+      "    type: 'object',\n" +
+      "    properties: { mediaItemId: { type: 'number' }, progress: { type: 'number' } },\n" +
+      "    required: ['mediaItemId']\n" +
+      "  }\n" +
+      "}), _MediaItemController.setAudioProgress);";
+    const fresh =
+      "/* AUDIO_PROGRESS_ROUTE_V2 */\n" +
+      "router.put('/api/audio-progress', validatorHandler({\n" +
+      "  requestQuerySchema: {\n" +
+      "    $schema: 'http://json-schema.org/draft-07/schema#',\n" +
+      "    type: 'object',\n" +
+      "    properties: { mediaItemId: { type: 'number' }, progress: { type: 'number' }, runtime: { type: 'number' }, numberOfPages: { type: 'number' } },\n" +
+      "    required: ['mediaItemId']\n" +
+      "  }\n" +
+      "}), _MediaItemController.setAudioProgress);";
+    if (!c.includes(old)) {
+      console.error('bugfix audio duration: route anchor not found');
+      process.exit(1);
+    }
+    c = c.replace(old, fresh);
+    fs.writeFileSync(path, c);
+    console.log('bugfix audio duration: route now accepts runtime + numberOfPages');
+  }
+}
+
+// === 3. Bundle: Rp modal _save sends runtime/numberOfPages ===
+{
+  const bundlePath = child.execSync('ls /app/public/main_*.js | grep -v "\\.LICENSE\\|\\.map"').toString().trim();
+  let c = fs.readFileSync(bundlePath, 'utf8');
+  if (c.includes('AUDIO_PROGRESS_BUNDLE_V2')) {
+    console.log('bugfix audio duration: bundle already patched');
+  } else {
+    // Audio save: append &runtime=maxD so the audiobook duration is persisted.
+    const audioOld =
+      'fetch("/api/audio-progress?mediaItemId="+t.id+"&progress="+(i/100),{method:"PUT",credentials:"same-origin"}).then(function(){HW.refetchQueries(en(t.id));HW.refetchQueries(["items"])});';
+    const audioNew =
+      '/* AUDIO_PROGRESS_BUNDLE_V2 */fetch("/api/audio-progress?mediaItemId="+t.id+"&progress="+(i/100)+"&runtime="+Number(maxD||0),{method:"PUT",credentials:"same-origin"}).then(function(){HW.refetchQueries(en(t.id));HW.refetchQueries(["items"])});';
+    if (!c.includes(audioOld)) {
+      console.error('bugfix audio duration: bundle audio _save anchor not found');
+      process.exit(1);
+    }
+    c = c.replace(audioOld, audioNew);
+
+    // Read save (un({mediaItemId, progress, duration})) → also persist
+    // numberOfPages via a parallel PUT /api/audio-progress call (the un()
+    // mutation handles progress only). Cheap, idempotent on identical maxP.
+    const readOld =
+      'un({mediaItemId:t.id,progress:i/100,duration:l});setTimeout(function(){HW.refetchQueries(en(t.id));HW.refetchQueries(["items"])},150);';
+    const readNew =
+      'un({mediaItemId:t.id,progress:i/100,duration:l});fetch("/api/audio-progress?mediaItemId="+t.id+"&numberOfPages="+Number(maxP||0),{method:"PUT",credentials:"same-origin"}).catch(function(){});setTimeout(function(){HW.refetchQueries(en(t.id));HW.refetchQueries(["items"])},150);';
+    if (!c.includes(readOld)) {
+      console.error('bugfix audio duration: bundle read _save anchor not found');
+      process.exit(1);
+    }
+    c = c.replace(readOld, readNew);
+
+    fs.writeFileSync(bundlePath, c);
+    console.log('bugfix audio duration: bundle _save now persists maxD/maxP');
+  }
+}
+
+})();
