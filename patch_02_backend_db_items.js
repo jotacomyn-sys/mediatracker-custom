@@ -73,12 +73,25 @@ const fs = require('fs');
 const path = '/app/build/dbconfig.js';
 let content = fs.readFileSync(path, 'utf8');
 
+// Pool tuning: knex defaults to { min:1, max:1 } for SQLite, which forces ALL
+// queries (reads and writes) through a single connection. With WAL already
+// enabled below, SQLite supports many concurrent readers safely, so the home
+// page (5 useQuery hooks fired in parallel) was getting serialised. Bump max
+// to 5 so React-Query parallel fetches actually run in parallel; writes still
+// serialise inside SQLite itself, so this is read-side only speedup.
 const original = 'useNullAsDefault: true,';
-const patched  = 'useNullAsDefault: true, pool: { afterCreate: function(conn, done) { try { conn.pragma("journal_mode=WAL"); conn.pragma("mmap_size=268435456"); conn.pragma("cache_size=-65536"); conn.pragma("temp_store=MEMORY"); conn.pragma("synchronous=NORMAL"); conn.pragma("foreign_keys=ON"); } catch(e){} done(null,conn); } },';
+const patched  = 'useNullAsDefault: true, pool: { min: 1, max: 5, /* mt-fork: pool-max-5 */ afterCreate: function(conn, done) { try { conn.pragma("journal_mode=WAL"); conn.pragma("mmap_size=268435456"); conn.pragma("cache_size=-65536"); conn.pragma("temp_store=MEMORY"); conn.pragma("synchronous=NORMAL"); conn.pragma("foreign_keys=ON"); conn.pragma("busy_timeout=5000"); } catch(e){} done(null,conn); } },';
+const oldPatched = 'useNullAsDefault: true, pool: { afterCreate: function(conn, done) { try { conn.pragma("journal_mode=WAL"); conn.pragma("mmap_size=268435456"); conn.pragma("cache_size=-65536"); conn.pragma("temp_store=MEMORY"); conn.pragma("synchronous=NORMAL"); conn.pragma("foreign_keys=ON"); } catch(e){} done(null,conn); } },';
 
-if (content.includes(patched)) {
-  console.log('dbconfig.js: already patched, skipping');
-  return /* was process.exit(0) */;
+if (content.includes('mt-fork: pool-max-5')) {
+  console.log('dbconfig.js: already patched (pool max 5), skipping');
+  return;
+}
+
+if (content.includes(oldPatched)) {
+  fs.writeFileSync(path, content.replace(oldPatched, patched));
+  console.log('dbconfig.js: pool upgraded to max:5 + busy_timeout=5000');
+  return;
 }
 
 if (!content.includes(original)) {
@@ -87,7 +100,7 @@ if (!content.includes(original)) {
 }
 
 fs.writeFileSync(path, content.replace(original, patched));
-console.log('dbconfig.js: SQLite performance pragmas applied');
+console.log('dbconfig.js: SQLite performance pragmas applied (pool max:5)');
 
 })();
 

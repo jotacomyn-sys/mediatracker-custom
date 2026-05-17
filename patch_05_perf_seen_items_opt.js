@@ -1083,3 +1083,85 @@ fs.writeFileSync(qPath, q);
 console.log('items only-downloaded: filter + count fast-path added');
 
 })();
+
+// ===== patch_items_response_cache.js =====
+// Backend-side cache for getItemsKnex output, keyed by (userId, JSON.stringify(args)),
+// TTL=30s. The 5 home-page useQuery hooks (Upcoming, Recently released, Unrated,
+// Next-episode, statistics-summary) hit the API in parallel but better-sqlite3 is
+// synchronous so they serialise on the Node event loop — total wall-clock ~5s on
+// cold load. With this cache:
+//   - First load:    still ~5s (cache miss for each).
+//   - Repeat loads:  ~0ms within the TTL window — instant re-renders.
+//   - Page nav:      back-to-home is instant if within 30s.
+// Invalidation: a knex `query-response` listener clears the entire cache on any
+// INSERT/UPDATE/DELETE so mutations are immediately reflected (no stale reads).
+// Memory cap: 256 entries (oldest evicted) — args strings are short, payloads
+// ~30–60 KB, so worst-case ~15 MB which is fine for a single-user instance.
+;(() => {
+const fs = require('fs');
+const path = '/app/build/knex/queries/items.js';
+let c = fs.readFileSync(path, 'utf8');
+const marker = '/* ITEMS_RESPONSE_CACHE_V1 */';
+if (c.includes(marker)) { console.log('items response cache: already patched'); return; }
+
+// Anchor: the exported wrapper exactly.
+const old = "const getItemsKnex = async args => {";
+const fresh =
+  "// " + marker + "\n" +
+  "const _itemsCache = new Map();\n" +
+  "const _ITEMS_CACHE_TTL = 30000;\n" +
+  "const _ITEMS_CACHE_MAX = 256;\n" +
+  "let _itemsCacheHookInstalled = false;\n" +
+  "function _installItemsCacheInvalidationHook() {\n" +
+  "  if (_itemsCacheHookInstalled) return;\n" +
+  "  try {\n" +
+  "    const _kx = _dbconfig.Database.knex;\n" +
+  "    if (!_kx || typeof _kx.on !== 'function') return;\n" +
+  "    _kx.on('query-response', function (_resp, q) {\n" +
+  "      try {\n" +
+  "        const sql = q && q.sql ? String(q.sql) : '';\n" +
+  "        if (/^\\s*(INSERT|UPDATE|DELETE|REPLACE)\\b/i.test(sql)) {\n" +
+  "          _itemsCache.clear();\n" +
+  "        }\n" +
+  "      } catch (_) {}\n" +
+  "    });\n" +
+  "    _itemsCacheHookInstalled = true;\n" +
+  "  } catch (_) {}\n" +
+  "}\n" +
+  "const _getItemsKnexUncached = async args => {";
+if (!c.includes(old)) { console.error('items response cache: anchor not found'); process.exit(1); }
+c = c.replace(old, fresh);
+
+// Now find the closing }; of getItemsKnex and inject the wrapper just after it.
+// The function ends with `};\nexports.getItemsKnex = getItemsKnex;` — split there.
+const exportLine = "exports.getItemsKnex = getItemsKnex;";
+const exportIdx = c.indexOf(exportLine);
+if (exportIdx < 0) { console.error('items response cache: export anchor not found'); process.exit(1); }
+const cacheWrapper =
+  "const getItemsKnex = async args => {\n" +
+  "  _installItemsCacheInvalidationHook();\n" +
+  "  // Key includes userId so users never see each other's data.\n" +
+  "  const key = String((args && args.userId) || 0) + '|' + JSON.stringify(args || {});\n" +
+  "  const hit = _itemsCache.get(key);\n" +
+  "  if (hit && (Date.now() - hit.at) < _ITEMS_CACHE_TTL) return hit.payload;\n" +
+  "  const payload = await _getItemsKnexUncached(args);\n" +
+  "  _itemsCache.set(key, { at: Date.now(), payload: payload });\n" +
+  "  if (_itemsCache.size > _ITEMS_CACHE_MAX) {\n" +
+  "    // Evict ~25% oldest entries.\n" +
+  "    const entries = Array.from(_itemsCache.entries());\n" +
+  "    entries.sort(function (a, b) { return a[1].at - b[1].at; });\n" +
+  "    for (let i = 0; i < Math.floor(_ITEMS_CACHE_MAX / 4); i++) _itemsCache.delete(entries[i][0]);\n" +
+  "  }\n" +
+  "  return payload;\n" +
+  "};\n";
+c = c.slice(0, exportIdx) + cacheWrapper + c.slice(exportIdx);
+fs.writeFileSync(path, c);
+try {
+  delete require.cache[require.resolve(path)];
+  require(path);
+  console.log('items response cache: installed with TTL=30s, invalidation on write');
+} catch (e) {
+  console.error('items response cache: SYNTAX ERROR ->', e.message.slice(0, 300));
+  process.exit(1);
+}
+})();
