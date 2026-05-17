@@ -309,3 +309,58 @@ fs.writeFileSync(path, c);
 console.log('progress sort disambig: applied');
 
 })();
+
+// ===== patch_pagination_out_of_range.js =====
+// Bug: getItemsKnex throws "Invalid page number" (HTTP 500 -> blank page) when
+// the requested page is beyond the last available page. Reproduces by being on
+// /movie?page=3 and then applying a filter ("Lista de seguimiento") whose
+// result set fits in fewer pages — the frontend re-uses the URL `page`, the
+// server throws, the SPA crashes to white. Replace the throw with a graceful
+// clamp: re-run the query at the last valid page so the response carries the
+// real last page's data and totalPages, and the UI re-renders coherently.
+;(() => {
+const fs = require('fs');
+const path = '/app/build/knex/queries/items.js';
+let c = fs.readFileSync(path, 'utf8');
+const marker = '/* PAGINATION_OOR_CLAMP_V1 */';
+if (c.includes(marker)) { console.log('pagination out-of-range: already patched'); return; }
+const old =
+  "    if (from > total) {\n" +
+  "      throw new Error('Invalid page number');\n" +
+  "    }";
+const fresh =
+  "    if (from >= total && total > 0) {\n" +
+  "      " + marker + "\n" +
+  "      // Stale page (URL/state preserved across a filter change that\n" +
+  "      // shrunk the result set). Re-execute on the last valid page so the\n" +
+  "      // UI doesn't crash with a 500 and the paginator stays coherent.\n" +
+  "      const clamped = Math.max(1, totalPages);\n" +
+  "      const reArgs = Object.assign({}, args, { page: clamped });\n" +
+  "      const reSql = await getItemsKnexSql(reArgs);\n" +
+  "      const reRes = await reSql.sqlPaginationQuery;\n" +
+  "      const reFrom = itemsPerPage * (clamped - 1);\n" +
+  "      const reTo = Math.min(total, itemsPerPage * clamped);\n" +
+  "      return {\n" +
+  "        from: reFrom,\n" +
+  "        to: reTo,\n" +
+  "        data: reRes.map(mapRawResult),\n" +
+  "        total: total,\n" +
+  "        page: clamped,\n" +
+  "        totalPages: totalPages\n" +
+  "      };\n" +
+  "    }";
+if (!c.includes(old)) {
+  console.error('pagination out-of-range: anchor not found');
+  process.exit(1);
+}
+c = c.replace(old, fresh);
+fs.writeFileSync(path, c);
+try {
+  delete require.cache[require.resolve(path)];
+  require(path);
+  console.log('pagination out-of-range: items.js patched + syntax OK');
+} catch (e) {
+  console.error('pagination out-of-range: SYNTAX ERROR ->', e.message.slice(0, 300));
+  process.exit(1);
+}
+})();
