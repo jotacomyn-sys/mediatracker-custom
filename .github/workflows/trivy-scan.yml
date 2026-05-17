@@ -32,7 +32,7 @@ jobs:
             . 2>&1 | tail -80
 
       - name: Trivy — fail on HIGH/CRITICAL
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: mediatoc:ci
           format: table
@@ -48,7 +48,7 @@ jobs:
 
       - name: Trivy — full report (informational, never fails)
         if: always()
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: mediatoc:ci
           format: table
@@ -60,7 +60,7 @@ jobs:
 
       - name: Upload SARIF for code-scanning
         if: always()
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: mediatoc:ci
           format: sarif
