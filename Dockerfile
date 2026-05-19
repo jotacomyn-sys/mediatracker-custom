@@ -94,6 +94,10 @@ RUN node /tmp/patch_08_i18n_theater_homepage.js
 COPY patch_09_abandoned_inprogress_counts.js /tmp/patch_09_abandoned_inprogress_counts.js
 RUN node /tmp/patch_09_abandoned_inprogress_counts.js
 
+# --- patch_11: serialize SQLite writes (pool.max=1) to kill BUSY storm on parallel TMDB inserts ---
+COPY patch_11_db_pool_serialize.js /tmp/patch_11_db_pool_serialize.js
+RUN node /tmp/patch_11_db_pool_serialize.js
+
 # Bucket 10 — backgrounds, CSS rules, css_rename hash bump, tokens UI, jellyfin
 # import buttons, bundle_rename hash bump, index.html title, PWA manifest+SW.
 # This bucket MUST run last among the patches because css_rename and bundle_rename
