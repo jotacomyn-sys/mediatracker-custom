@@ -98,6 +98,10 @@ RUN node /tmp/patch_09_abandoned_inprogress_counts.js
 COPY patch_11_db_pool_serialize.js /tmp/patch_11_db_pool_serialize.js
 RUN node /tmp/patch_11_db_pool_serialize.js
 
+# --- patch_12: in /in-progress, exclude non-tv items the user has already marked seen ---
+COPY patch_12_inprogress_aip_excludes_seen.js /tmp/patch_12_inprogress_aip_excludes_seen.js
+RUN node /tmp/patch_12_inprogress_aip_excludes_seen.js
+
 # Bucket 10 — backgrounds, CSS rules, css_rename hash bump, tokens UI, jellyfin
 # import buttons, bundle_rename hash bump, index.html title, PWA manifest+SW.
 # This bucket MUST run last among the patches because css_rename and bundle_rename
