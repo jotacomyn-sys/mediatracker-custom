@@ -75,6 +75,27 @@ Open `http://localhost:7481` — the first user to register becomes admin.
 | `GET` | `/api/youtube/watched-stats` | User's watched-video totals |
 | `GET` `/POST` | `/api/jellyfin/*` | Status, sync, config (admin) |
 
+## Companion: `contrib/jf-torrents-organize`
+
+Optional but recommended if you run **qBittorrent + Jellyfin** alongside MediaTOC.
+
+qBittorrent saves torrents at release-style paths
+(`/data/torrents/Title (YYYY) [Bluray 1080p][Esp]/foo.mkv`). Jellyfin matches
+metadata poorly against those names, so MediaTOC's **Downloaded** badge —
+which reads from Jellyfin — never lights up. The fix isn't to rename the
+qBit folder (that breaks seeding); it's to create **hardlinks** in a clean
+parallel structure that Jellyfin indexes correctly. Same inode, zero extra
+bytes on disk.
+
+`contrib/jf-torrents-organize/` ships a small Python script + systemd units
+that do exactly that, plus a `/Library/Refresh` call to Jellyfin so the new
+entries appear immediately. It reads the Jellyfin URL + API key directly
+from MediaTOC's own storage (`/storage/jellyfin-config.json`) so if you
+already configured Jellyfin in MediaTOC, no extra credentials needed.
+
+See [`contrib/jf-torrents-organize/README.md`](contrib/jf-torrents-organize/README.md)
+for layout requirements, env vars and footguns.
+
 ## Host-side backups
 
 The image doesn't ship a cron — recommended pattern:

@@ -1,0 +1,15 @@
+[Unit]
+Description=Run jf-torrents-organize every 10 min (and 2 min after boot)
+Requires=jf-torrents-organize.service
+
+[Timer]
+# First run: 2 min after boot, so Docker has time to bring containers up.
+OnBootSec=2min
+# Recurring cadence.
+OnUnitActiveSec=10min
+Unit=jf-torrents-organize.service
+# Catch up on a missed run if the machine was off.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

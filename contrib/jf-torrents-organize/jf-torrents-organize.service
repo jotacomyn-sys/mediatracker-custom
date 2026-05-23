@@ -1,0 +1,24 @@
+[Unit]
+Description=Hardlink qBittorrent downloads into clean Jellyfin libraries (companion to MediaTOC)
+Documentation=https://github.com/javimentallab/mediatoc/tree/main/contrib/jf-torrents-organize
+After=docker.service
+
+[Service]
+Type=oneshot
+# Adjust path if the script lives elsewhere on your host. Env vars (see README)
+# can be passed inline (Environment=KEY=value) or via an EnvironmentFile=.
+# Examples:
+#   Environment=TORRENTS_PATH_HOST=/srv/qbit/downloads
+#   Environment=MOVIES_PATH_IN_JF=/data/movies
+#   Environment=SERIES_PATH_IN_JF=/data/series
+#   Environment=JF_URL=http://localhost:8096
+#   Environment=JF_API_KEY=xxxx
+#   EnvironmentFile=-/etc/default/jf-torrents-organize
+ExecStart=/usr/bin/python3 %h/scripts/jf_torrents_organize.py --apply
+StandardOutput=journal
+StandardError=journal
+# Hard cap: if something hangs, kill the script after 10 min.
+TimeoutStartSec=600
+
+[Install]
+WantedBy=default.target
