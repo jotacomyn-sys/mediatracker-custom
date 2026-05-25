@@ -111,6 +111,7 @@ const method =
 "      const list = await this.jellyfinFetch('/Users/' + userId + '/Items?Recursive=true&IncludeItemTypes=Movie,Series&Fields=ProviderIds&Limit=20000');\n" +
 "      const items = list.Items || [];\n" +
 "      let marked = 0, alreadyMarked = 0, unmatched = 0;\n" +
+"      const foundIds = new Set();\n" +
 "      for (const it of items) {\n" +
 "        const p = it.ProviderIds || {};\n" +
 "        const mt = it.Type === 'Movie' ? 'movie' : it.Type === 'Series' ? 'tv' : null;\n" +
@@ -120,11 +121,34 @@ const method =
 "        if (!media && p.Imdb) media = await knex('mediaItem').where({ mediaType: mt, imdbId: p.Imdb }).first();\n" +
 "        if (!media && p.Tvdb && mt === 'tv') media = await knex('mediaItem').where({ mediaType: mt, tvdbId: Number(p.Tvdb) }).first();\n" +
 "        if (!media) { unmatched++; continue; }\n" +
+"        foundIds.add(media.id);\n" +
 "        if (media.downloaded) { alreadyMarked++; continue; }\n" +
 "        await knex('mediaItem').where('id', media.id).update('downloaded', true);\n" +
 "        marked++;\n" +
 "      }\n" +
-"      res.json({ ok: true, jellyfinItems: items.length, newlyMarked: marked, alreadyMarked, unmatched });\n" +
+"      // Bidirectional: clear the downloaded flag for movies/tv currently marked\n" +
+"      // but no longer present in JF (treat JF as authoritative for those types).\n" +
+"      // Skip if JF returned zero items — likely an API hiccup, don't mass-clear.\n" +
+"      // Two-pass match: (1) ProviderIds (already done above into foundIds),\n" +
+"      // (2) normalized-title substring against ANY JF Name, to catch JF library\n" +
+"      // items with garbled filenames whose metadata never matched against TMDB.\n" +
+"      let unmarked = 0;\n" +
+"      if (items.length > 0) {\n" +
+"        const _norm = function(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]/g,''); };\n" +
+"        const _words = function(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').split(' ').filter(w => w.length >= 4); };\n" +
+"        const jfNames = items.filter(it => it.Type === 'Movie' || it.Type === 'Series').map(it => _norm(it.Name));\n" +
+"        const staleQ = knex('mediaItem').where('downloaded', true).whereIn('mediaType', ['movie','tv']);\n" +
+"        if (foundIds.size > 0) staleQ.whereNotIn('id', Array.from(foundIds));\n" +
+"        const candidates = await staleQ.select('id', 'title', 'originalTitle');\n" +
+"        const toUnmark = candidates.filter(r => {\n" +
+"          const ws = [..._words(r.title), ..._words(r.originalTitle)];\n" +
+"          if (ws.length === 0) return true;\n" +
+"          // Match if any significant word appears in any JF normalized name.\n" +
+"          return !jfNames.some(name => ws.some(w => name.includes(w)));\n" +
+"        }).map(r => r.id);\n" +
+"        if (toUnmark.length > 0) unmarked = await knex('mediaItem').whereIn('id', toUnmark).update('downloaded', false);\n" +
+"      }\n" +
+"      res.json({ ok: true, jellyfinItems: items.length, newlyMarked: marked, alreadyMarked, unmatched, newlyUnmarked: unmarked });\n" +
 "    } catch (e) {\n" +
 "      res.status(500).json({ error: e.message });\n" +
 "    }\n" +
