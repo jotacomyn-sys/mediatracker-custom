@@ -673,16 +673,19 @@ const fs = require('fs');
   if (!c.includes('function _jfCfg()')) {
     // Sync read of /storage/jellyfin-config.json on each call. File overrides env.
     // No caching — file is tiny and write-frequency is essentially zero.
+    // publicUrl is normalized to .origin so any stray /web/, /#/home.html etc.
+    // pasted from a browser address bar can't poison the deeplink string.
     const helper =
       "\nfunction _jfCfg() {\n" +
       "  const _e = process.env;\n" +
       "  let f = {};\n" +
       "  try { f = JSON.parse(require('fs').readFileSync('/storage/jellyfin-config.json', 'utf8')); } catch (_) {}\n" +
+      "  const _norm = function(u){ try { return u ? new URL(u).origin : ''; } catch (_) { return u || ''; } };\n" +
       "  return {\n" +
       "    url: f.url || _e.JELLYFIN_URL || '',\n" +
       "    apiKey: f.apiKey || _e.JELLYFIN_API_KEY || '',\n" +
       "    userId: f.userId || _e.JELLYFIN_USER_ID || '',\n" +
-      "    publicUrl: f.publicUrl || _e.JELLYFIN_PUBLIC_URL || '',\n" +
+      "    publicUrl: _norm(f.publicUrl || _e.JELLYFIN_PUBLIC_URL),\n" +
       "    reverseSync: (f.reverseSync !== undefined ? !!f.reverseSync : _e.JELLYFIN_REVERSE_SYNC === 'true'),\n" +
       "  };\n" +
       "}\n";
@@ -716,12 +719,16 @@ const fs = require('fs');
       "    const body = req.body || {};\n" +
       "    let current = {};\n" +
       "    try { current = JSON.parse(fs.readFileSync('/storage/jellyfin-config.json', 'utf8')); } catch (_) {}\n" +
+      "    // Normalize publicUrl to origin only — strips any /web/, /#/..., trailing\n" +
+      "    // path/hash so the deeplink concatenation in jellyfinLookup can't be poisoned\n" +
+      "    // by a value pasted straight from the JF address bar.\n" +
+      "    const _normOrigin = function(u){ try { return u ? new URL(u).origin : ''; } catch (_) { return String(u || '').trim(); } };\n" +
       "    // apiKey: empty string means 'leave existing'; explicit null means 'clear'.\n" +
       "    const merged = {\n" +
       "      url: body.url !== undefined ? String(body.url || '').trim() : (current.url || ''),\n" +
       "      apiKey: body.apiKey === null ? '' : (body.apiKey ? String(body.apiKey).trim() : (current.apiKey || '')),\n" +
       "      userId: body.userId !== undefined ? String(body.userId || '').trim() : (current.userId || ''),\n" +
-      "      publicUrl: body.publicUrl !== undefined ? String(body.publicUrl || '').trim() : (current.publicUrl || ''),\n" +
+      "      publicUrl: body.publicUrl !== undefined ? _normOrigin(String(body.publicUrl || '').trim()) : (current.publicUrl || ''),\n" +
       "      reverseSync: body.reverseSync !== undefined ? !!body.reverseSync : !!current.reverseSync,\n" +
       "    };\n" +
       "    try { fs.writeFileSync('/storage/jellyfin-config.json', JSON.stringify(merged, null, 2), { mode: 0o600 }); }\n" +
@@ -757,11 +764,12 @@ const fs = require('fs');
       "  const _e = process.env;\n" +
       "  let f = {};\n" +
       "  try { f = JSON.parse(require('fs').readFileSync('/storage/jellyfin-config.json', 'utf8')); } catch (_) {}\n" +
+      "  const _norm = function(u){ try { return u ? new URL(u).origin : ''; } catch (_) { return u || ''; } };\n" +
       "  return {\n" +
       "    url: f.url || _e.JELLYFIN_URL || '',\n" +
       "    apiKey: f.apiKey || _e.JELLYFIN_API_KEY || '',\n" +
       "    userId: f.userId || _e.JELLYFIN_USER_ID || '',\n" +
-      "    publicUrl: f.publicUrl || _e.JELLYFIN_PUBLIC_URL || '',\n" +
+      "    publicUrl: _norm(f.publicUrl || _e.JELLYFIN_PUBLIC_URL),\n" +
       "    reverseSync: (f.reverseSync !== undefined ? !!f.reverseSync : _e.JELLYFIN_REVERSE_SYNC === 'true'),\n" +
       "  };\n" +
       "}\n";
