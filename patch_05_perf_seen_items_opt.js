@@ -1237,3 +1237,26 @@ try {
   process.exit(1);
 }
 })();
+
+// ===== patch_home_render_synchronized.js =====
+// Frontend bundle patch. The home component (Xv) dispatches 4 useQuery calls
+// and renders each section as soon as its items resolve, so the page pops in
+// one section at a time. Wrap the render with a guard: if any of the three
+// displayed sections is still loading (items === undefined), render a single
+// "Cargando..." placeholder instead. Skip the 4th query result `t` because
+// the section that consumes it is gated off by `mt-fork:no-next-episode-home`.
+// patch_10 re-hashes/recompresses the bundle later so we only need to write
+// the .js here.
+;(() => {
+  const child = require('child_process');
+  const fs = require('fs');
+  const bundlePath = child.execSync("ls /app/public/main_*.js | grep -v '\\.LICENSE\\|\\.map'").toString().trim();
+  let c = fs.readFileSync(bundlePath, 'utf8');
+  if (c.includes('/*HOME_RENDER_SYNC_V1*/')) { console.log('home render sync: already patched'); return; }
+  const anchor = '.items,a=dg({orderBy:"lastSeen",sortOrder:"desc",page:1,onlySeenItems:!0,onlyWithoutUserRating:!0}).items;return r.createElement(r.Fragment,null,r.createElement("div",{className:"px-2"},r.createElement(Uv,null)';
+  if (!c.includes(anchor)) { console.error('home render sync: anchor not found in bundle'); process.exit(1); }
+  const guard = '.items,a=dg({orderBy:"lastSeen",sortOrder:"desc",page:1,onlySeenItems:!0,onlyWithoutUserRating:!0}).items;/*HOME_RENDER_SYNC_V1*/if(e===undefined||n===undefined||a===undefined){return r.createElement("div",{className:"text-center py-12 text-gray-500"},"Cargando…");}return r.createElement(r.Fragment,null,r.createElement("div",{className:"px-2"},r.createElement(Uv,null)';
+  c = c.replace(anchor, guard);
+  fs.writeFileSync(bundlePath, c);
+  console.log('home render sync: installed (waits for upcoming/recently/unrated before rendering)');
+})();
