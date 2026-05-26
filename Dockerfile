@@ -132,6 +132,9 @@ RUN node /tmp/patch_23_universal_aips_drop_modal.js
 # --- patch_24: move _MAS next to _AIPS and match its outline style ---
 COPY patch_24_move_mas_next_to_aips.js /tmp/patch_24_move_mas_next_to_aips.js
 RUN node /tmp/patch_24_move_mas_next_to_aips.js
+# --- patch_25: _AIPS per-fetch invalidation + inProgress respects abandoned ---
+COPY patch_25_aips_per_call_invalidation.js /tmp/patch_25_aips_per_call_invalidation.js
+RUN node /tmp/patch_25_aips_per_call_invalidation.js
 
 # Bucket 10 — backgrounds, CSS rules, css_rename hash bump, tokens UI, jellyfin
 # import buttons, bundle_rename hash bump, index.html title, PWA manifest+SW.
