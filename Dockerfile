@@ -105,6 +105,12 @@ RUN node /tmp/patch_12_inprogress_aip_excludes_seen.js
 # --- patch_13: on /api/progress?progress=1 (slider to 100%), also remove non-TV items from the watchlist ---
 COPY patch_13_progress_completion_watchlist.js /tmp/patch_13_progress_completion_watchlist.js
 RUN node /tmp/patch_13_progress_completion_watchlist.js
+# --- patch_14: TV-only series-level "in progress" toggle button on detail page (right of sg) ---
+COPY patch_14_aip_series_button.js /tmp/patch_14_aip_series_button.js
+RUN node /tmp/patch_14_aip_series_button.js
+# --- patch_15: DELETE /api/actively-in-progress/:id now deletes the row (no excluded=1) ---
+COPY patch_15_aip_remove_deletes_row.js /tmp/patch_15_aip_remove_deletes_row.js
+RUN node /tmp/patch_15_aip_remove_deletes_row.js
 
 # Bucket 10 — backgrounds, CSS rules, css_rename hash bump, tokens UI, jellyfin
 # import buttons, bundle_rename hash bump, index.html title, PWA manifest+SW.
