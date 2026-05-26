@@ -63,6 +63,33 @@ TORRENTS_PATH_IN_JF = os.environ.get("TORRENTS_PATH_IN_JF", "/data/torrents")
 MOVIES_PATH_IN_JF = os.environ.get("MOVIES_PATH_IN_JF", "/data/movies/peliculas")
 SERIES_PATH_IN_JF = os.environ.get("SERIES_PATH_IN_JF", "/data/movies/series")
 
+# Optional host-side equivalents of the destinations. When set, the script
+# performs ls/mkdir/test/ln directly on the host filesystem instead of via
+# `docker exec`. This is faster (no docker exec overhead) and bypasses the
+# EXDEV trap that happens when /data/torrents and /data/movies are *two*
+# separate bind mounts: even when both live on the same host FS, the kernel
+# refuses cross-mount hardlinks. With host paths there is only one mount.
+MOVIES_PATH_HOST = os.environ.get("MOVIES_PATH_HOST", "")
+SERIES_PATH_HOST = os.environ.get("SERIES_PATH_HOST", "")
+
+# JF-view path -> host path. Populated below; used by to_host() to decide
+# whether a given operation can run natively on the host.
+_PATH_MAP = {TORRENTS_PATH_IN_JF: TORRENTS_PATH_HOST}
+if MOVIES_PATH_HOST:
+    _PATH_MAP[MOVIES_PATH_IN_JF] = MOVIES_PATH_HOST
+if SERIES_PATH_HOST:
+    _PATH_MAP[SERIES_PATH_IN_JF] = SERIES_PATH_HOST
+
+
+def to_host(p: str):
+    """Map a JF-view path to its host equivalent, or None if no mapping."""
+    for jf_root, host_root in _PATH_MAP.items():
+        if p == jf_root:
+            return host_root
+        if p.startswith(jf_root + "/"):
+            return host_root + p[len(jf_root):]
+    return None
+
 # --- Containers / Jellyfin API -------------------------------------------
 JF_CONTAINER = os.environ.get("JF_CONTAINER", "jellyfin")
 # Two ways to provide Jellyfin URL + API key:
@@ -161,6 +188,13 @@ def docker_exec(args, capture=True):
 
 
 def jf_ls(path):
+    h = to_host(path)
+    if h is not None:
+        try:
+            return sorted(os.listdir(h))
+        except OSError as e:
+            log(f"  ls failed for {path}: {e}")
+            return []
     rc, out, err = docker_exec(["ls", "-1A", path])
     if rc != 0:
         log(f"  ls failed for {path}: {err.strip()}")
@@ -169,11 +203,23 @@ def jf_ls(path):
 
 
 def jf_exists(path):
+    h = to_host(path)
+    if h is not None:
+        return os.path.lexists(h)
     rc, _, _ = docker_exec(["test", "-e", path])
     return rc == 0
 
 
 def jf_mkdir_p(path, apply):
+    h = to_host(path)
+    if h is not None:
+        if apply:
+            try:
+                os.makedirs(h, exist_ok=True)
+            except OSError as e:
+                log(f"  mkdir failed: {e}")
+                return False
+        return True
     if apply:
         rc, _, err = docker_exec(["mkdir", "-p", "--", path])
         if rc != 0:
@@ -186,6 +232,16 @@ def jf_link(src, dst, apply):
     """Hardlink src -> dst. No-op if dst already exists. Does NOT touch src."""
     if jf_exists(dst):
         log(f"  skip (already exists): {dst}")
+        return True
+    h_src = to_host(src)
+    h_dst = to_host(dst)
+    if h_src is not None and h_dst is not None:
+        if apply:
+            try:
+                os.link(h_src, h_dst)
+            except OSError as e:
+                log(f"  link failed: {e}")
+                return False
         return True
     if apply:
         rc, _, err = docker_exec(["ln", "--", src, dst])
@@ -274,6 +330,81 @@ def process_movie_folder(folder_name: str, apply: bool):
     return linked_any
 
 
+def parse_file_episode(filename: str):
+    """Parse (season, episode) out of a *file* name. Returns None if not found.
+
+    Recognises SxxExx (international) and [Cap.NNN] (Spanish releases).
+    """
+    m = re.search(r"\bS(\d{1,2})E(\d{1,2})\b", filename, flags=re.IGNORECASE)
+    if m:
+        return (int(m.group(1)), int(m.group(2)))
+    m = re.search(r"\[\s*Cap\.?\s*(\d+)\s*\]", filename, flags=re.IGNORECASE)
+    if m:
+        n = m.group(1)
+        if len(n) >= 3:
+            return (int(n[:-2]), int(n[-2:]))
+        return (1, int(n))
+    return None
+
+
+def looks_like_season_pack(name: str) -> bool:
+    """Cheap name-only check before we pay the cost of listing the folder."""
+    if re.search(r"\b[Ss]\d{1,2}\b(?!E\d)", name):
+        return True
+    if re.search(r"\bTemporada\s+\d+\b", name, flags=re.IGNORECASE):
+        return True
+    return False
+
+
+def extract_series_title(folder_name: str) -> str:
+    """Best-effort series title from a season-pack folder name."""
+    base = folder_name.split("[", 1)[0]
+    base = re.split(r"\b[Ss]\d{1,2}\b", base)[0]
+    base = re.split(r"\bTemporada\s+\d+\b", base, flags=re.IGNORECASE)[0]
+    base = base.replace(".", " ").replace("_", " ")
+    base = re.sub(r"\s+", " ", base).strip(" -._")
+    return base
+
+
+def process_season_pack_folder(folder_name: str, apply: bool):
+    """Hardlink every recognised episode inside a single folder.
+
+    Use this for season packs where one folder contains many SxxExx (or
+    [Cap.NNN]) files. Returns True if at least one episode was linked.
+    """
+    src_dir = f"{TORRENTS_PATH_IN_JF}/{folder_name}"
+    files = jf_ls(src_dir)
+    episodes = []
+    for f in files:
+        if f.lower() in JUNK_FILES:
+            continue
+        ext = os.path.splitext(f)[1].lower()
+        if ext not in VIDEO_EXTS:
+            continue
+        ep = parse_file_episode(f)
+        if ep:
+            episodes.append((f, ep))
+    if len(episodes) < 2:
+        return False
+    raw_series = extract_series_title(folder_name)
+    if not raw_series:
+        return False
+    series = canonical_series_name(raw_series)
+    log(f"SEASON PACK {folder_name!r} -> {series!r} ({len(episodes)} episodes)")
+    linked_any = False
+    for fname, (season, episode) in episodes:
+        season_dir = f"{SERIES_PATH_IN_JF}/{series}/Season {season:02d}"
+        jf_mkdir_p(season_dir, apply)
+        ext = os.path.splitext(fname)[1].lower()
+        base_name = f"{series} S{season:02d}E{episode:02d}"
+        src = f"{src_dir}/{fname}"
+        dst = f"{season_dir}/{base_name}{ext}"
+        log(f"  ln {fname} -> {dst}")
+        if jf_link(src, dst, apply):
+            linked_any = True
+    return linked_any
+
+
 def process_episode_folder(folder_name: str, apply: bool):
     parsed = parse_episode(folder_name)
     if not parsed:
@@ -321,6 +452,9 @@ def main():
     for name in entries:
         full = os.path.join(TORRENTS_PATH_HOST, name)
         if not os.path.isdir(full):
+            continue
+        if looks_like_season_pack(name) and process_season_pack_folder(name, args.apply):
+            processed += 1
             continue
         if not is_dirty(name):
             skipped += 1
