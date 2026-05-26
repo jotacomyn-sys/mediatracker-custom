@@ -111,6 +111,9 @@ RUN node /tmp/patch_14_aip_series_button.js
 # --- patch_17: details.inProgress computed flag + _AIPS button reflects it ---
 COPY patch_17_button_reflects_in_progress.js /tmp/patch_17_button_reflects_in_progress.js
 RUN node /tmp/patch_17_button_reflects_in_progress.js
+# --- patch_18: engagement actions (Marcar en proceso / Add to watchlist) also unmark abandoned ---
+COPY patch_18_recovery_actions_unabandon.js /tmp/patch_18_recovery_actions_unabandon.js
+RUN node /tmp/patch_18_recovery_actions_unabandon.js
 
 # Bucket 10 — backgrounds, CSS rules, css_rename hash bump, tokens UI, jellyfin
 # import buttons, bundle_rename hash bump, index.html title, PWA manifest+SW.
