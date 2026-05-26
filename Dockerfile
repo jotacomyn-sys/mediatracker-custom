@@ -123,6 +123,9 @@ RUN node /tmp/patch_20_loose_aip_inprogress.js
 # --- patch_21: base filter includes abandoned items; _markCompleted also clears AIP ---
 COPY patch_21_abandoned_visibility_complete_clears_aip.js /tmp/patch_21_abandoned_visibility_complete_clears_aip.js
 RUN node /tmp/patch_21_abandoned_visibility_complete_clears_aip.js
+# --- patch_22: swap _AIPS button colors (action-based: red=remove, green=add) ---
+COPY patch_22_aips_swap_colors.js /tmp/patch_22_aips_swap_colors.js
+RUN node /tmp/patch_22_aips_swap_colors.js
 
 # Bucket 10 — backgrounds, CSS rules, css_rename hash bump, tokens UI, jellyfin
 # import buttons, bundle_rename hash bump, index.html title, PWA manifest+SW.
