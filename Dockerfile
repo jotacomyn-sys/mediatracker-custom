@@ -120,6 +120,9 @@ RUN node /tmp/patch_19_flag_sync_event.js
 # --- patch_20: loosen AIP-manual gate + add inProgress computed flag + popup uses it ---
 COPY patch_20_loose_aip_inprogress.js /tmp/patch_20_loose_aip_inprogress.js
 RUN node /tmp/patch_20_loose_aip_inprogress.js
+# --- patch_21: base filter includes abandoned items; _markCompleted also clears AIP ---
+COPY patch_21_abandoned_visibility_complete_clears_aip.js /tmp/patch_21_abandoned_visibility_complete_clears_aip.js
+RUN node /tmp/patch_21_abandoned_visibility_complete_clears_aip.js
 
 # Bucket 10 — backgrounds, CSS rules, css_rename hash bump, tokens UI, jellyfin
 # import buttons, bundle_rename hash bump, index.html title, PWA manifest+SW.
