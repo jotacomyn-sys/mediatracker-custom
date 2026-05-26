@@ -135,6 +135,9 @@ RUN node /tmp/patch_24_move_mas_next_to_aips.js
 # --- patch_25: _AIPS per-fetch invalidation + inProgress respects abandoned ---
 COPY patch_25_aips_per_call_invalidation.js /tmp/patch_25_aips_per_call_invalidation.js
 RUN node /tmp/patch_25_aips_per_call_invalidation.js
+# --- patch_26: items cache TTL 5min + progressive home render ---
+COPY patch_26_home_perf.js /tmp/patch_26_home_perf.js
+RUN node /tmp/patch_26_home_perf.js
 
 # Bucket 10 — backgrounds, CSS rules, css_rename hash bump, tokens UI, jellyfin
 # import buttons, bundle_rename hash bump, index.html title, PWA manifest+SW.
