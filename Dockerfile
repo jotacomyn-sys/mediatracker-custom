@@ -138,6 +138,9 @@ RUN node /tmp/patch_25_aips_per_call_invalidation.js
 # --- patch_26: items cache TTL 5min + progressive home render ---
 COPY patch_26_home_perf.js /tmp/patch_26_home_perf.js
 RUN node /tmp/patch_26_home_perf.js
+# --- patch_27: TV seen flag requires status NOT Returning/InProduction/Planned ---
+COPY patch_27_tv_seen_requires_ended.js /tmp/patch_27_tv_seen_requires_ended.js
+RUN node /tmp/patch_27_tv_seen_requires_ended.js
 
 # Bucket 10 — backgrounds, CSS rules, css_rename hash bump, tokens UI, jellyfin
 # import buttons, bundle_rename hash bump, index.html title, PWA manifest+SW.
