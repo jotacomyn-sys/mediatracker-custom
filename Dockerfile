@@ -108,12 +108,12 @@ RUN node /tmp/patch_13_progress_completion_watchlist.js
 # --- patch_14: TV-only series-level "in progress" toggle button on detail page (right of sg) ---
 COPY patch_14_aip_series_button.js /tmp/patch_14_aip_series_button.js
 RUN node /tmp/patch_14_aip_series_button.js
-# --- patch_15: DELETE /api/actively-in-progress/:id now deletes the row (no excluded=1) ---
-COPY patch_15_aip_remove_deletes_row.js /tmp/patch_15_aip_remove_deletes_row.js
-RUN node /tmp/patch_15_aip_remove_deletes_row.js
 # --- patch_16: AIP-manual branch for TV also requires unseenEpisodesCount > 0 ---
 COPY patch_16_aip_tv_branch_requires_unseen.js /tmp/patch_16_aip_tv_branch_requires_unseen.js
 RUN node /tmp/patch_16_aip_tv_branch_requires_unseen.js
+# --- patch_17: details.inProgress computed flag + _AIPS button reflects it ---
+COPY patch_17_button_reflects_in_progress.js /tmp/patch_17_button_reflects_in_progress.js
+RUN node /tmp/patch_17_button_reflects_in_progress.js
 
 # Bucket 10 — backgrounds, CSS rules, css_rename hash bump, tokens UI, jellyfin
 # import buttons, bundle_rename hash bump, index.html title, PWA manifest+SW.
