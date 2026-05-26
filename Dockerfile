@@ -117,6 +117,9 @@ RUN node /tmp/patch_18_recovery_actions_unabandon.js
 # --- patch_19: flag-change event + _AB/_AIPS sync + Reanudar re-adds to watchlist ---
 COPY patch_19_flag_sync_event.js /tmp/patch_19_flag_sync_event.js
 RUN node /tmp/patch_19_flag_sync_event.js
+# --- patch_20: loosen AIP-manual gate + add inProgress computed flag + popup uses it ---
+COPY patch_20_loose_aip_inprogress.js /tmp/patch_20_loose_aip_inprogress.js
+RUN node /tmp/patch_20_loose_aip_inprogress.js
 
 # Bucket 10 — backgrounds, CSS rules, css_rename hash bump, tokens UI, jellyfin
 # import buttons, bundle_rename hash bump, index.html title, PWA manifest+SW.
