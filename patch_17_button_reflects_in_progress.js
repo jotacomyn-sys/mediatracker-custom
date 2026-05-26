@@ -54,7 +54,7 @@ const child = require('child_process');
     '\n            (_seenEps > 0 && _unseen > 0) ||' +
     '\n            (_fue && _fueProg > 0) ||' +
     '\n            (_onWl && !!_fue) ||' +
-    '\n            (_aipAc && _unseen > 0)' +
+    '\n            _aipAc' +
     '\n          );' +
     '\n        } else {' +
     '\n          details.inProgress = _aipAc;' +
