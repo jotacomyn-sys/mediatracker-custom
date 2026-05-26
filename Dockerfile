@@ -114,6 +114,9 @@ RUN node /tmp/patch_17_button_reflects_in_progress.js
 # --- patch_18: engagement actions (Marcar en proceso / Add to watchlist) also unmark abandoned ---
 COPY patch_18_recovery_actions_unabandon.js /tmp/patch_18_recovery_actions_unabandon.js
 RUN node /tmp/patch_18_recovery_actions_unabandon.js
+# --- patch_19: flag-change event + _AB/_AIPS sync + Reanudar re-adds to watchlist ---
+COPY patch_19_flag_sync_event.js /tmp/patch_19_flag_sync_event.js
+RUN node /tmp/patch_19_flag_sync_event.js
 
 # Bucket 10 — backgrounds, CSS rules, css_rename hash bump, tokens UI, jellyfin
 # import buttons, bundle_rename hash bump, index.html title, PWA manifest+SW.
