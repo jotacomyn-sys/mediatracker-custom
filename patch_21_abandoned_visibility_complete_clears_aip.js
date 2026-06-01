@@ -72,7 +72,7 @@ const child = require('child_process');
     process.exit(1);
   }
   const newInit =
-    'var promises=[fetch(url,{method:"PUT",credentials:"same-origin"}),fetch("/api/actively-in-progress/"+t.id,{method:"DELETE",credentials:"same-origin"}).catch(function(){})];';
+    'var promises=[fetch(url,{method:"PUT",credentials:"same-origin"})];if(!_tvEp){promises.push(fetch("/api/actively-in-progress/"+t.id,{method:"DELETE",credentials:"same-origin"}).catch(function(){}));}';
   c = c.replace(oldInit, newInit);
   c = '/*' + marker.slice(2, -2) + '*/\n' + c;
   fs.writeFileSync(bundlePath, c);

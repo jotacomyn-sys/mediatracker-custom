@@ -884,7 +884,7 @@ const newFunction =
       `var _wlDel=function(){return fetch("/api/watchlist?mediaItemId="+t.id,{method:"DELETE",credentials:"same-origin"})};` +
       `if(!_tvEp){` +
         `promises.push(_wlDel());` +
-      `}else if((Number(t.seenEpisodesCount||0)+1)>=Number(t.numberOfAiredEpisodes||0)){` +
+      `}else if(Number(t.unseenEpisodesCount||0)<=1&&["Returning Series","In Production","Planned"].indexOf(t.status)<0){` +
         `promises.push(_wlDel());` +
       `}` +
       `Promise.all(promises).finally(function(){HW.refetchQueries(en(t.id));HW.refetchQueries(["items"]);n()});` +
